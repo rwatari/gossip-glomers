@@ -3,48 +3,13 @@
 import asyncio
 import random
 from dataclasses import dataclass
-from typing import Any, cast
-from maelstrom import ErrorMessageBody, Node, Message, MessageBody
+from typing import cast
+from kv import KVCASMessageBody, KVReadMessageBody, Service, handle_kv_cas_reply, handle_kv_read_reply, register_kv_messages
+from maelstrom import Node, Message, MessageBody
 
 node = Node()
+register_kv_messages(node)
 
-### seq-kv messages ###############################
-@dataclass(kw_only=True)
-class SeqKVReadMessageBody(MessageBody):
-    type: str = 'read'
-    key: Any
-
-@node.message('read_ok')
-@dataclass(kw_only=True)
-class SeqKVReadReplyMessageBody(MessageBody):
-    type: str = 'read_ok'
-    value: Any
-
-@dataclass(kw_only=True)
-class SeqKVWriteMessageBody(MessageBody):
-    type: str = 'write'
-    key: Any
-    value: Any
-
-@node.message('write_ok')
-@dataclass
-class SeqKVWriteReplyMessageBody(MessageBody):
-    type: str = 'write_ok'
-
-@dataclass(kw_only=True)
-class SeqKVCASMessageBody(MessageBody):
-    type: str = 'cas'
-    key: Any
-    from_: Any # 'from' is a reserved word so we can't use as an attrib
-    to: Any
-    create_if_not_exists: bool | None = None
-
-@node.message('cas_ok')
-@dataclass
-class SeqKVCASReplyMessageBody(MessageBody):
-    type: str = 'cas_ok'
-
-### grow_only ############################################
 @node.message('add')
 @dataclass
 class AddMessageBody(MessageBody):
@@ -64,28 +29,10 @@ class ReadReplyMessageBody(MessageBody):
     type: str = 'read_ok'
     value: int
 
-async def handle_read_reply(read_reply_msg: Message[SeqKVReadReplyMessageBody | ErrorMessageBody]):
-    match read_reply_msg.body:
-        case SeqKVReadReplyMessageBody():
-            return cast(int, read_reply_msg.body.value)
-        case ErrorMessageBody(code=20): # key nonexistent
-            raise KeyError(f'Error from seq-kv on read: {read_reply_msg}')
-        case _:
-            raise RuntimeError(f'Unexpected reply type from seq-kv on read: {read_reply_msg}')
-
-async def handle_cas_reply(cas_reply_msg: Message[SeqKVCASReplyMessageBody | ErrorMessageBody]):
-    match cas_reply_msg.body:
-        case SeqKVCASReplyMessageBody():
-            return
-        case ErrorMessageBody(code=22): # inconsistent state
-            raise ValueError(f'CAS failed due to bad "from" value: {cas_reply_msg}')
-        case _:
-            raise RuntimeError(f'Unexpected reply type from seq-kv on CAS: {cas_reply_msg}')
-
 async def read_with_default(key: str):
     try:
-        return await node.rpc('seq-kv', SeqKVReadMessageBody(key=key),
-                              handle_read_reply, retry_timeout=random.random)
+        return cast(int, await node.rpc(Service.SeqKV, KVReadMessageBody(key=key),
+                                        handle_kv_read_reply, retry_timeout=random.random))
     except KeyError:
         return 0
 
@@ -98,10 +45,10 @@ async def handle_add(add_msg: Message[AddMessageBody]):
             next_value = prev_value + add_msg.body.delta
 
             # do cas with retry
-            cas_msg = SeqKVCASMessageBody(key=node.id,
-                                          from_=prev_value,
-                                          to=next_value,
-                                          create_if_not_exists=True)
+            cas_msg = KVCASMessageBody(key=node.id,
+                                       from_=prev_value,
+                                       to=next_value,
+                                       create_if_not_exists=True)
             
             # We shouldn't retry or we can over-add
             # In this example, it seems like seq-kv is fully available so we don't
@@ -111,7 +58,7 @@ async def handle_add(add_msg: Message[AddMessageBody]):
             # Not sure if there is a stateless solution if seq-kv isn't available.
             # If a successful CAS ack message isn't delivered to a node, no node has
             # a way of knowing why the store was incremented
-            await node.rpc('seq-kv', cas_msg, handle_cas_reply)
+            await node.rpc(Service.SeqKV, cas_msg, handle_kv_cas_reply)
             break
         except ValueError:
             continue
@@ -120,8 +67,11 @@ async def handle_add(add_msg: Message[AddMessageBody]):
 @node.handler('read')
 async def handle_read(read_msg: Message[ReadMessageBody]):
     vals = await asyncio.gather(*(read_with_default(node_id) for node_id in node.node_ids))
-    # The final read has a habit of desyncing. n0 could be out of date part way through reading
-    # Adds a lot of reads, but is generally more successful
+    # seq-kv is sequentially consistent, so a read on a different node's key can be stale.
+    # Adding a second read seems to be enough to ensure freshness in this case, but
+    # another option is to ask other nodes for their values. They are the clients
+    # responsible for updating those keys, so seq-kv should always return the current
+    # value. Maybe add a backup to seq-kv and add a timeout in case of network partition
     vals2 = await asyncio.gather(*(read_with_default(node_id) for node_id in node.node_ids))
     await node.log(f'Current known vals: {vals}')
     await node.reply(read_msg, ReadReplyMessageBody(value=sum(max(p) for p in zip(vals, vals2))))

@@ -91,7 +91,13 @@ class Node:
 
     ### Decorators for message and handler registration
     def message(self, msg_type: str):
+        """
+        Every message type that a node can receive should be registered with this
+        decorator.
+        """
         def wrapper(msg_constructor: MessageBodyT):
+            if msg_type in self._message_constructors:
+                raise ValueError(f"Message type '{msg_type}' is already registered")
             self._message_constructors[msg_type] = lambda data_dict: Message[
                 MessageBodyT
             ].from_dict(msg_constructor, data_dict)
@@ -194,6 +200,10 @@ class Node:
         )
         self._logger = asyncio.StreamWriter(l_transport, l_protocol, None, loop)
 
+    # TODO: Maybe messages can be namespaced or matched to source
+    # Create namespace for maelstrom services like lin-kv, seq-kv
+    # If source is in node_ids, it's an inter-node message type
+    # API space for clients
     async def _handle_message(self, message_json: str):
         msg_obj = json.loads(message_json)
         msg_type = msg_obj["body"]["type"]
@@ -218,13 +228,9 @@ class Node:
         return msg_id
 
     def _register_init(self):
-        self._message_constructors["init"] = lambda data_dict: Message[
-            InitMessageBody
-        ].from_dict(InitMessageBody, data_dict)
-        self._handlers["init"] = self._handle_init
-        self._message_constructors["error"] = lambda data_dict: Message[
-            ErrorMessageBody
-        ].from_dict(ErrorMessageBody, data_dict)
+        self.message("init")(InitMessageBody)
+        self.handler("init")(self._handle_init)
+        self.message("error")(ErrorMessageBody)
 
     async def _handle_init(self, init_msg: Message[InitMessageBody]):
         self.id = init_msg.body.node_id

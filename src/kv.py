@@ -57,13 +57,19 @@ async def handle_kv_read_reply(read_reply_msg: Message[KVReadReplyMessageBody | 
         case _:
             raise RuntimeError(f'Unexpected reply type from {read_reply_msg.src} on read: {read_reply_msg}')
 
+async def handle_kv_write_reply(write_reply_msg: Message[KVWriteReplyMessageBody | ErrorMessageBody]):
+    match write_reply_msg.body:
+        case KVReadReplyMessageBody():
+            return
+        case _:
+            raise RuntimeError(f'Unexpected reply type from {write_reply_msg.src} on write: {write_reply_msg}')
 
 async def handle_kv_cas_reply(cas_reply_msg: Message[KVCASReplyMessageBody | ErrorMessageBody]):
     match cas_reply_msg.body:
         case KVCASReplyMessageBody():
             return
         case ErrorMessageBody(code=20): # key nonexistent
-            raise KeyError(f'Error from {cas_reply_msg.src} on read: {cas_reply_msg}')
+            raise KeyError(f'Error from {cas_reply_msg.src} on CAS: {cas_reply_msg}')
         case ErrorMessageBody(code=22): # inconsistent state
             raise ValueError(f'CAS failed due to bad "from" value: {cas_reply_msg}')
         case _:

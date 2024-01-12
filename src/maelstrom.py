@@ -85,7 +85,6 @@ class Node:
         self.message_counter = count()
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
-        self._logger: asyncio.StreamWriter | None = None
         self._message_constructors: dict[str, Callable[[dict], Message]] = {}
         self._handlers: dict[str, MessageHandler] = {}
         self._callbacks: dict[int, MessageHandler] = {}
@@ -107,6 +106,8 @@ class Node:
 
         return wrapper
 
+    # TODO: handler messages probably don't need the message container and should
+    #       reply with the return value
     def handler(self, msg_type: str):
         def wrapper(handler_func: MessageHandler):
             self._handlers[msg_type] = handler_func
@@ -119,8 +120,7 @@ class Node:
         asyncio.run(self._run())
 
     async def log(self, log_msg: str):
-        self._logger.write((log_msg + "\n").encode())
-        await self._logger.drain()
+        print(log_msg, file=sys.stderr, flush=True)
 
     async def send(self, dest: str, message_body: MessageBodyT):
         message = Message[MessageBodyT](src=self.id, dest=dest, body=message_body)
@@ -153,7 +153,7 @@ class Node:
                 try:
                     callback_result.set_result(await callback(cb_msg_arg))
                 except asyncio.InvalidStateError:
-                    await self.log("Tried to set callback result on a cancelled future")
+                    self.log("Tried to set callback result on a cancelled future")
                 except Exception as e:
                     callback_result.set_exception(e)
 
@@ -165,7 +165,7 @@ class Node:
             except TimeoutError:
                 callback_result.cancel()
                 self._callbacks.pop(msg_id, None)
-                await self.log(
+                self.log(
                     f"Timeout while waiting for reply from {dest} on msg_id {msg_id}"
                 )
 
@@ -197,11 +197,6 @@ class Node:
         )
         self._writer = asyncio.StreamWriter(w_transport, w_protocol, None, loop)
 
-        l_transport, l_protocol = await loop.connect_write_pipe(
-            asyncio.streams.FlowControlMixin, sys.stderr
-        )
-        self._logger = asyncio.StreamWriter(l_transport, l_protocol, None, loop)
-
     # TODO: Maybe messages can be namespaced or matched to source
     # Create namespace for maelstrom services like lin-kv, seq-kv
     # If source is in node_ids, it's an inter-node message type
@@ -215,7 +210,7 @@ class Node:
                 callback = self._callbacks.pop(msg.body.in_reply_to)
                 await callback(msg)
             except KeyError:
-                await self.log(f"No callback for message {msg}")
+                self.log(f"No callback for message {msg}")
         else:
             await self._handlers[msg_type](msg)
 
@@ -237,5 +232,5 @@ class Node:
     async def _handle_init(self, init_msg: Message[InitMessageBody]):
         self.id = init_msg.body.node_id
         self.node_ids = init_msg.body.node_ids
-        await self.log(f"Initialized node {self.id}")
+        self.log(f"Initialized node {self.id}")
         await self.reply(init_msg, InitReplyMessageBody())

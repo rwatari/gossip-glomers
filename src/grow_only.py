@@ -69,7 +69,7 @@ async def handle_read(read_msg: Message[ReadMessageBody]):
     # responsible for updating those keys, so seq-kv should always return the current
     # value. Maybe add a backup to seq-kv and add a timeout in case of network partition
     vals2 = await asyncio.gather(*(read_with_default(node_id) for node_id in node.node_ids))
-    await node.log(f'Current known vals: {vals}')
+    node.log(f'Current known vals: {vals}')
     await node.reply(read_msg, ReadReplyMessageBody(value=sum(max(p) for p in zip(vals, vals2))))
 
 node.run()

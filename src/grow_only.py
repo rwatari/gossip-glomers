@@ -4,7 +4,7 @@ import asyncio
 import random
 from dataclasses import dataclass
 from typing import cast
-from kv import KVCASMessageBody, KVReadMessageBody, Service, handle_kv_cas_reply, handle_kv_read_reply, register_kv_messages
+from kv import Service, kv_cas, kv_read, register_kv_messages
 from maelstrom import Node, Message, MessageBody
 
 node = Node()
@@ -31,8 +31,8 @@ class ReadReplyMessageBody(MessageBody):
 
 async def read_with_default(key: str):
     try:
-        return cast(int, await node.rpc(Service.SeqKV, KVReadMessageBody(key=key),
-                                        handle_kv_read_reply, retry_timeout=random.random))
+        return cast(int, await kv_read(node, Service.SeqKV,
+                                       key, retry_timeout=random.random))
     except KeyError:
         return 0
 
@@ -44,12 +44,6 @@ async def handle_add(add_msg: Message[AddMessageBody]):
             prev_value = await read_with_default(node.id)
             next_value = prev_value + add_msg.body.delta
 
-            # do cas with retry
-            cas_msg = KVCASMessageBody(key=node.id,
-                                       from_=prev_value,
-                                       to=next_value,
-                                       create_if_not_exists=True)
-            
             # We shouldn't retry or we can over-add
             # In this example, it seems like seq-kv is fully available so we don't
             # need to worry about retrying.
@@ -58,7 +52,9 @@ async def handle_add(add_msg: Message[AddMessageBody]):
             # Not sure if there is a stateless solution if seq-kv isn't available.
             # If a successful CAS ack message isn't delivered to a node, no node has
             # a way of knowing why the store was incremented
-            await node.rpc(Service.SeqKV, cas_msg, handle_kv_cas_reply)
+            await kv_cas(node, Service.SeqKV,
+                         key=node.id, from_=prev_value, to=next_value,
+                         create_if_not_exists=True)
             break
         except ValueError:
             continue

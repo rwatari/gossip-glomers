@@ -76,6 +76,8 @@ class MessageHandler(Protocol[MessageBodyT, T]):
         ...
 
 
+RetryTimeout = Callable[[], float] | float | None
+
 class Node:
     def __init__(self):
         self.id: str | None = None
@@ -137,7 +139,7 @@ class Node:
         dest: str,
         message_body: MessageBodyT,
         callback: MessageHandler[MessageBodyS, T],
-        retry_timeout: Callable[[], float] | float | None = None,
+        retry_timeout: RetryTimeout = None,
     ) -> T:
         """
         retry_timeout is in seconds and can be a function. Will not retry if None

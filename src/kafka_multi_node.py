@@ -54,11 +54,17 @@ Results:
             :info-txn-causes ()},
  :valid? true}
 
+With some logging, it looks like CAS contention is not too bad
+~5% for both send and commit_offsets
+Simply substituting lin-kv for seq-kv for send and poll made perf a little worse.
+~11% fails for send
+
 Improvements:
 Didn't take advantage of the fact that sent messages don't have a recency requirement.
 As long as it's consistent, a message doesn't have to appear in a poll immediately after
-being written.
-Can use hashing to consistently pick writer per key and store messages in seq-kv instead.
+being written. This suggests using seq-kv for message storage.
+Can use hashing to consistently pick writer per key.
+The node could also hold state about the keys it owns. This would also allow batching writes.
 Offset metadata should still go to lin-kv
 """
 PAGE_SIZE = 20
@@ -97,8 +103,12 @@ async def append_message(key: str, page_n: int, message: int):
                          key=f'{key}_{page_n}', from_=page, to=page + [message])
             return (page_n, len(page))
 
+send_count = 0
+send_cas_fails = 0
 @node.handler('send')
 async def handle_send(send_msg: Message[SendMB]):
+    global send_count, send_cas_fails
+    send_count += 1
     key = send_msg.body.key
     message = send_msg.body.msg
     lock = locks[key]
@@ -109,6 +119,7 @@ async def handle_send(send_msg: Message[SendMB]):
                 appended_page, position = await append_message(key, current_page, message)
             except ValueError:
                 # failed to add message. Should retry from top
+                send_cas_fails += 1
                 continue
             if current_page != appended_page:
                 # what if another node successfully appends to page at same time?
@@ -120,6 +131,7 @@ async def handle_send(send_msg: Message[SendMB]):
                     pass
             break
 
+    node.log(f'send CAS fail ratio: {send_cas_fails / send_count}')
     offset = (PAGE_SIZE * appended_page) + position
     await node.reply(send_msg, SendReplyMB(offset=offset))
 
@@ -136,8 +148,12 @@ async def handle_poll(poll_msg: Message[PollMB]):
           
     await node.reply(poll_msg, PollReplyMB(msgs=poll_reply))
 
+commit_offsets_count = 0
+commit_cas_fails = 0
 @node.handler('commit_offsets')
 async def handle_commit_offsets(commit_offsets_msg: Message[CommitOffsetsMB]):
+    global commit_offsets_count, commit_cas_fails
+    commit_offsets_count += 1
     for key, offset in commit_offsets_msg.body.offsets.items():
         commit_key = f'{key}_committed_offset'
         while True:
@@ -152,8 +168,10 @@ async def handle_commit_offsets(commit_offsets_msg: Message[CommitOffsetsMB]):
                 break
             except ValueError:
                 # retry the offset commit
+                commit_cas_fails += 1
                 continue
 
+    node.log(f'commit_offsets CAS fail ratio: {commit_cas_fails / commit_offsets_count}')
     await node.reply(commit_offsets_msg, CommitOffsetsReplyMB())
 
 @node.handler('list_committed_offsets')

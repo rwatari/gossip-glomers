@@ -108,6 +108,7 @@ class Node:
 
     # TODO: handler messages probably don't need the message container and should
     #       reply with the return value
+    # TODO: can register the message constructor in the same decorator call as a 2nd arg
     def handler(self, msg_type: str):
         def wrapper(handler_func: MessageHandler):
             self._handlers[msg_type] = handler_func
@@ -119,7 +120,7 @@ class Node:
     def run(self):
         asyncio.run(self._run())
 
-    async def log(self, log_msg: str):
+    def log(self, log_msg: str):
         print(log_msg, file=sys.stderr, flush=True)
 
     async def send(self, dest: str, message_body: MessageBodyT):

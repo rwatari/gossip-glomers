@@ -41,4 +41,4 @@ def register_kafka_messages(node: Node):
     node.message('send')(SendMB)
     node.message('poll')(PollMB)
     node.message('commit_offsets')(CommitOffsetsMB)
-    node.message('list_committed_offsets_ok')(ListCommittedOffsetsMB)
+    node.message('list_committed_offsets')(ListCommittedOffsetsMB)

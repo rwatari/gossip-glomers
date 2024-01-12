@@ -56,20 +56,17 @@ async def kv_read(node: Node, service: Service, key: Any, retry_timeout: RetryTi
 
 async def kv_write(node: Node, service: Service, key: Any, value: Any, retry_timeout: RetryTimeout = None):
     await node.rpc(service,
-                   KVWriteMessageBody(key=key,
-                                      value=value),
+                   KVWriteMessageBody(key=key, value=value),
                    handle_kv_write_reply,
                    retry_timeout)
 
 async def kv_cas(node: Node, service: Service, key: Any, from_: Any, to: Any,
                  create_if_not_exists: bool | None = None, retry_timeout: RetryTimeout = None):
-    return await node.rpc(service,
-                          KVCASMessageBody(key=key,
-                                              from_=from_,
-                                              to=to,
-                                              create_if_not_exists=create_if_not_exists),
-                          handle_kv_cas_reply,
-                          retry_timeout)
+    await node.rpc(service,
+                   KVCASMessageBody(key=key, from_=from_, to=to,
+                                    create_if_not_exists=create_if_not_exists),
+                   handle_kv_cas_reply,
+                   retry_timeout)
 
 async def handle_kv_read_reply(read_reply_msg: Message[KVReadReplyMessageBody | ErrorMessageBody]):
     match read_reply_msg.body:

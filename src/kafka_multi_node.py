@@ -68,23 +68,38 @@ Offset metadata should still go to lin-kv
 PAGE_SIZE = 20
 locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
+
 async def get_current_page(key: str):
-    page_key = f'{key}_current_page'
+    page_key = f"{key}_current_page"
     try:
         return cast(int, await kv_read(node, Service.LinKV, key=page_key))
     except KeyError:
         # we can create the key in a later step
         return -1
 
+
 async def update_current_page(key: str, prev_page: int, current_page: int):
-    page_key = f'{key}_current_page'
-    await kv_cas(node, Service.LinKV,
-                 key=page_key, from_=prev_page, to=current_page, create_if_not_exists=True)
+    page_key = f"{key}_current_page"
+    await kv_cas(
+        node,
+        Service.LinKV,
+        key=page_key,
+        from_=prev_page,
+        to=current_page,
+        create_if_not_exists=True,
+    )
+
 
 async def add_new_page(key: str, page_n: int, message: int):
-    await kv_cas(node, Service.LinKV,
-                 key=f'{key}_{page_n}', from_='', to=[message],
-                 create_if_not_exists=True)
+    await kv_cas(
+        node,
+        Service.LinKV,
+        key=f"{key}_{page_n}",
+        from_="",
+        to=[message],
+        create_if_not_exists=True,
+    )
+
 
 async def append_message(key: str, page_n: int, message: int):
     """Returns (page number, position) message was appended to. Throws ValueError if CAS failed"""
@@ -92,17 +107,25 @@ async def append_message(key: str, page_n: int, message: int):
         await add_new_page(key, 0, message)
         return (0, 0)
     else:
-        page: list[int] = await kv_read(node, Service.LinKV, key=f'{key}_{page_n}')
+        page: list[int] = await kv_read(node, Service.LinKV, key=f"{key}_{page_n}")
         if len(page) == PAGE_SIZE:
             await add_new_page(key, page_n + 1, message)
             return (page_n + 1, 0)
         else:
-            await kv_cas(node, Service.LinKV,
-                         key=f'{key}_{page_n}', from_=page, to=page + [message])
+            await kv_cas(
+                node,
+                Service.LinKV,
+                key=f"{key}_{page_n}",
+                from_=page,
+                to=page + [message],
+            )
             return (page_n, len(page))
+
 
 send_count = 0
 send_cas_fails = 0
+
+
 @node.handler(SendMB)
 async def handle_send(send_msg: Message[SendMB]):
     global send_count, send_cas_fails
@@ -114,7 +137,9 @@ async def handle_send(send_msg: Message[SendMB]):
         while True:
             current_page = await get_current_page(key)
             try:
-                appended_page, position = await append_message(key, current_page, message)
+                appended_page, position = await append_message(
+                    key, current_page, message
+                )
             except ValueError:
                 # failed to add message. Should retry from top
                 send_cas_fails += 1
@@ -129,60 +154,86 @@ async def handle_send(send_msg: Message[SendMB]):
                     pass
             break
 
-    node.log(f'send CAS fail ratio: {send_cas_fails / send_count}')
+    node.log(f"send CAS fail ratio: {send_cas_fails / send_count}")
     offset = (PAGE_SIZE * appended_page) + position
     await node.reply(send_msg, SendReplyMB(offset=offset))
+
 
 @node.handler(PollMB)
 async def handle_poll(poll_msg: Message[PollMB]):
     poll_reply = {}
     for key, offset in poll_msg.body.offsets.items():
         try:
-            page: list[int] = await kv_read(node, Service.LinKV, key=f'{key}_{offset // PAGE_SIZE}')
-            poll_reply[key] = [[offset + i, msg] for i, msg in enumerate(page[offset % PAGE_SIZE:])]
+            page: list[int] = await kv_read(
+                node, Service.LinKV, key=f"{key}_{offset // PAGE_SIZE}"
+            )
+            poll_reply[key] = [
+                [offset + i, msg] for i, msg in enumerate(page[offset % PAGE_SIZE :])
+            ]
         except KeyError:
             # omit this key from the response
-            continue 
-          
+            continue
+
     await node.reply(poll_msg, PollReplyMB(msgs=poll_reply))
+
 
 commit_offsets_count = 0
 commit_cas_fails = 0
+
+
 @node.handler(CommitOffsetsMB)
 async def handle_commit_offsets(commit_offsets_msg: Message[CommitOffsetsMB]):
     global commit_offsets_count, commit_cas_fails
     commit_offsets_count += 1
     for key, offset in commit_offsets_msg.body.offsets.items():
-        commit_key = f'{key}_committed_offset'
+        commit_key = f"{key}_committed_offset"
         while True:
             try:
-                committed_offset: int = await kv_read(node, Service.LinKV, key=commit_key)
+                committed_offset: int = await kv_read(
+                    node, Service.LinKV, key=commit_key
+                )
             except KeyError:
                 # does not exist yet. this is fine
                 committed_offset = -1
             try:
-                await kv_cas(node, Service.LinKV,
-                             key=commit_key, from_=committed_offset, to=offset, create_if_not_exists=True)
+                await kv_cas(
+                    node,
+                    Service.LinKV,
+                    key=commit_key,
+                    from_=committed_offset,
+                    to=offset,
+                    create_if_not_exists=True,
+                )
                 break
             except ValueError:
                 # retry the offset commit
                 commit_cas_fails += 1
                 continue
 
-    node.log(f'commit_offsets CAS fail ratio: {commit_cas_fails / commit_offsets_count}')
+    node.log(
+        f"commit_offsets CAS fail ratio: {commit_cas_fails / commit_offsets_count}"
+    )
     await node.reply(commit_offsets_msg, CommitOffsetsReplyMB())
 
+
 @node.handler(ListCommittedOffsetsMB)
-async def handle_list_committed_offsets(list_committed_offsets_msg: Message[ListCommittedOffsetsMB]):
+async def handle_list_committed_offsets(
+    list_committed_offsets_msg: Message[ListCommittedOffsetsMB],
+):
     list_reply: dict[str, int] = {}
     for key in list_committed_offsets_msg.body.keys:
-        commit_key = f'{key}_committed_offset'
+        commit_key = f"{key}_committed_offset"
         try:
-            list_reply[key] = cast(int, await kv_read(node, Service.LinKV, key=commit_key))
+            list_reply[key] = cast(
+                int, await kv_read(node, Service.LinKV, key=commit_key)
+            )
             break
         except KeyError:
             # omit this key from the response
             continue
-    await node.reply(list_committed_offsets_msg, ListCommittedOffsetsReplyMB(offsets=list_reply))
+    await node.reply(
+        list_committed_offsets_msg, ListCommittedOffsetsReplyMB(offsets=list_reply)
+    )
+
 
 node.run()

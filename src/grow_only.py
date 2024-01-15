@@ -10,30 +10,37 @@ from maelstrom import Node, Message, MessageBody
 node = Node()
 register_kv_messages(node)
 
+
 @dataclass(kw_only=True)
 class AddMessageBody(MessageBody):
-    type: str = 'add'
+    type: str = "add"
     delta: int
+
 
 @dataclass
 class AddReplyMessageBody(MessageBody):
-    type: str = 'add_ok'
+    type: str = "add_ok"
+
 
 @dataclass(kw_only=True)
 class ReadMessageBody(MessageBody):
-    type: str = 'read'
+    type: str = "read"
+
 
 @dataclass(kw_only=True)
 class ReadReplyMessageBody(MessageBody):
-    type: str = 'read_ok'
+    type: str = "read_ok"
     value: int
+
 
 async def read_with_default(key: str):
     try:
-        return cast(int, await kv_read(node, Service.SeqKV,
-                                       key, retry_timeout=random.random))
+        return cast(
+            int, await kv_read(node, Service.SeqKV, key, retry_timeout=random.random)
+        )
     except KeyError:
         return 0
+
 
 @node.handler(AddMessageBody)
 async def handle_add(add_msg: Message[AddMessageBody]):
@@ -51,24 +58,37 @@ async def handle_add(add_msg: Message[AddMessageBody]):
             # Not sure if there is a stateless solution if seq-kv isn't available.
             # If a successful CAS ack message isn't delivered to a node, no node has
             # a way of knowing why the store was incremented
-            await kv_cas(node, Service.SeqKV,
-                         key=node.id, from_=prev_value, to=next_value,
-                         create_if_not_exists=True)
+            await kv_cas(
+                node,
+                Service.SeqKV,
+                key=node.id,
+                from_=prev_value,
+                to=next_value,
+                create_if_not_exists=True,
+            )
             break
         except ValueError:
             continue
     await node.reply(add_msg, AddReplyMessageBody())
 
+
 @node.handler(ReadMessageBody)
 async def handle_read(read_msg: Message[ReadMessageBody]):
-    vals = await asyncio.gather(*(read_with_default(node_id) for node_id in node.node_ids))
+    vals = await asyncio.gather(
+        *(read_with_default(node_id) for node_id in node.node_ids)
+    )
     # seq-kv is sequentially consistent, so a read on a different node's key can be stale.
     # Adding a second read seems to be enough to ensure freshness in this case, but
     # another option is to ask other nodes for their values. They are the clients
     # responsible for updating those keys, so seq-kv should always return the current
     # value. Maybe add a backup to seq-kv and add a timeout in case of network partition
-    vals2 = await asyncio.gather(*(read_with_default(node_id) for node_id in node.node_ids))
-    node.log(f'Current known vals: {vals}')
-    await node.reply(read_msg, ReadReplyMessageBody(value=sum(max(p) for p in zip(vals, vals2))))
+    vals2 = await asyncio.gather(
+        *(read_with_default(node_id) for node_id in node.node_ids)
+    )
+    node.log(f"Current known vals: {vals}")
+    await node.reply(
+        read_msg, ReadReplyMessageBody(value=sum(max(p) for p in zip(vals, vals2)))
+    )
+
 
 node.run()

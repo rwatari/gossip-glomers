@@ -25,9 +25,7 @@ class Message(Generic[MessageBodyT]):
     body: MessageBodyT
 
     @classmethod
-    def from_dict(
-        cls, body_factory: type[MessageBody], data_dict: dict[str, Any]
-    ):
+    def from_dict(cls, body_factory: type[MessageBody], data_dict: dict[str, Any]):
         """
         Usage: Message[SubclassMessageBody].from_dict(SubclassMessageBody, data_dict)
         """
@@ -75,6 +73,7 @@ MessageHandler = Callable[[Message[MessageBodyT]], Awaitable[T]]
 
 RetryTimeout = Callable[[], float] | float | None
 
+
 class Node:
     def __init__(self):
         self.id: str
@@ -82,7 +81,9 @@ class Node:
         self.message_counter = count()
         self._reader: asyncio.StreamReader
         self._writer: asyncio.StreamWriter
-        self._message_constructors: dict[str, Callable[[dict[str, Any]], Message[Any]]] = {}
+        self._message_constructors: dict[
+            str, Callable[[dict[str, Any]], Message[Any]]
+        ] = {}
         self._handlers: dict[str, MessageHandler[Any, Any]] = {}
         self._callbacks: dict[int, MessageHandler[Any, Any]] = {}
         self._register_init()
@@ -90,8 +91,9 @@ class Node:
     def register_message_type(self, msg_type: type[MessageBody]):
         if msg_type.type in self._message_constructors:
             raise ValueError(f"Message type '{msg_type.type}' is already registered")
-        self._message_constructors[msg_type.type] = lambda data_dict: Message[MessageBody].from_dict(msg_type, data_dict)
-
+        self._message_constructors[msg_type.type] = lambda data_dict: Message[
+            MessageBody
+        ].from_dict(msg_type, data_dict)
 
     ### Decorator for message and handler registration
     # TODO: handler messages probably don't need the message container and should
@@ -119,9 +121,7 @@ class Node:
         self._writer.write(message_str.encode())
         await self._writer.drain()
 
-    async def reply(
-        self, original_msg: Message[MessageBodyT], reply_body: MessageBody
-    ):
+    async def reply(self, original_msg: Message[MessageBodyT], reply_body: MessageBody):
         reply_body = replace(reply_body, in_reply_to=original_msg.body.msg_id)
         await self.send(original_msg.src, reply_body)
 

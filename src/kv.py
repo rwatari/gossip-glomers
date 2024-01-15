@@ -41,33 +41,6 @@ class KVCASMessageBody(MessageBody):
 class KVCASReplyMessageBody(MessageBody):
     type: str = 'cas_ok'
 
-# TODO: Maybe there's a more pythonic way of handling this. Mixins?
-# And maybe hijack the message handler so the message types can be namespaced?
-def register_kv_messages(node: Node):
-    node.message('read_ok')(KVReadReplyMessageBody)
-    node.message('write_ok')(KVWriteReplyMessageBody)
-    node.message('cas_ok')(KVCASReplyMessageBody)
-
-async def kv_read(node: Node, service: Service, key: Any, retry_timeout: RetryTimeout = None):
-    return await node.rpc(service,
-                          KVReadMessageBody(key=key),
-                          handle_kv_read_reply,
-                          retry_timeout)
-
-async def kv_write(node: Node, service: Service, key: Any, value: Any, retry_timeout: RetryTimeout = None):
-    await node.rpc(service,
-                   KVWriteMessageBody(key=key, value=value),
-                   handle_kv_write_reply,
-                   retry_timeout)
-
-async def kv_cas(node: Node, service: Service, key: Any, from_: Any, to: Any,
-                 create_if_not_exists: bool | None = None, retry_timeout: RetryTimeout = None):
-    await node.rpc(service,
-                   KVCASMessageBody(key=key, from_=from_, to=to,
-                                    create_if_not_exists=create_if_not_exists),
-                   handle_kv_cas_reply,
-                   retry_timeout)
-
 async def handle_kv_read_reply(read_reply_msg: Message[KVReadReplyMessageBody | ErrorMessageBody]):
     match read_reply_msg.body:
         case KVReadReplyMessageBody():
@@ -94,3 +67,30 @@ async def handle_kv_cas_reply(cas_reply_msg: Message[KVCASReplyMessageBody | Err
             raise ValueError(f'CAS failed due to bad "from" value: {cas_reply_msg}')
         case _:
             raise RuntimeError(f'Unexpected reply type from {cas_reply_msg.src} on CAS: {cas_reply_msg}')
+
+async def kv_read(node: Node, service: Service, key: Any, retry_timeout: RetryTimeout = None):
+    return await node.rpc(service,
+                          KVReadMessageBody(key=key),
+                          handle_kv_read_reply,
+                          retry_timeout)
+
+async def kv_write(node: Node, service: Service, key: Any, value: Any, retry_timeout: RetryTimeout = None):
+    await node.rpc(service,
+                   KVWriteMessageBody(key=key, value=value),
+                   handle_kv_write_reply,
+                   retry_timeout)
+
+async def kv_cas(node: Node, service: Service, key: Any, from_: Any, to: Any,
+                 create_if_not_exists: bool | None = None, retry_timeout: RetryTimeout = None):
+    await node.rpc(service,
+                   KVCASMessageBody(key=key, from_=from_, to=to,
+                                    create_if_not_exists=create_if_not_exists),
+                   handle_kv_cas_reply,
+                   retry_timeout)
+
+# TODO: Maybe there's a more pythonic way of handling this. Mixins?
+# And maybe hijack the message handler so the message types can be namespaced?
+def register_kv_messages(node: Node):
+    node.register_message_type(KVReadReplyMessageBody)
+    node.register_message_type(KVWriteReplyMessageBody)
+    node.register_message_type(KVCASReplyMessageBody)

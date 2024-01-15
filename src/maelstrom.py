@@ -90,28 +90,23 @@ class Node:
         self._callbacks: dict[int, MessageHandler] = {}
         self._register_init()
 
-    ### Decorators for message and handler registration
-    def message(self, msg_type: str):
-        """
-        Every message type that a node can receive should be registered with this
-        decorator.
-        """
-        def wrapper(msg_constructor: MessageBodyT):
-            if msg_type in self._message_constructors:
-                raise ValueError(f"Message type '{msg_type}' is already registered")
-            self._message_constructors[msg_type] = lambda data_dict: Message[
-                MessageBodyT
-            ].from_dict(msg_constructor, data_dict)
-            return msg_constructor
+    def register_message_type(self, msg_type: MessageBodyT):
+        if msg_type.type in self._message_constructors:
+            raise ValueError(f"Message type '{msg_type.type}' is already registered")
+        self._message_constructors[msg_type.type] = lambda data_dict: Message[
+            MessageBodyT
+        ].from_dict(msg_type, data_dict)
 
-        return wrapper
 
+    ### Decorator for message and handler registration
     # TODO: handler messages probably don't need the message container and should
     #       reply with the return value
-    # TODO: can register the message constructor in the same decorator call as a 2nd arg
-    def handler(self, msg_type: str):
+    # TODO: handler functions should probably take the node as an argument for
+    #       testing purposes
+    def handler(self, msg_type: MessageBodyT):
         def wrapper(handler_func: MessageHandler):
-            self._handlers[msg_type] = handler_func
+            self.register_message_type(msg_type)
+            self._handlers[msg_type.type] = handler_func
             return handler_func
 
         return wrapper
@@ -226,9 +221,8 @@ class Node:
         return msg_id
 
     def _register_init(self):
-        self.message("init")(InitMessageBody)
-        self.handler("init")(self._handle_init)
-        self.message("error")(ErrorMessageBody)
+        self.handler(InitMessageBody)(self._handle_init)
+        self.register_message_type(ErrorMessageBody)
 
     async def _handle_init(self, init_msg: Message[InitMessageBody]):
         self.id = init_msg.body.node_id

@@ -6,10 +6,9 @@ from maelstrom import Node, Message, MessageBody
     
 node = Node()
 
-@node.message('generate')
 @dataclass
 class GenerateMessageBody(MessageBody):
-    pass
+    type: str = 'generate'
 
 @dataclass(kw_only=True)
 class GenerateReplyMessageBody(MessageBody):
@@ -18,7 +17,7 @@ class GenerateReplyMessageBody(MessageBody):
 
 counter = count()
 
-@node.handler('generate')
+@node.handler(GenerateMessageBody)
 async def handle_generate(generate_msg: Message[GenerateMessageBody]):
     generate_reply = GenerateReplyMessageBody(id=f'{node.id}_{next(counter)}')
     await node.reply(generate_msg, generate_reply)

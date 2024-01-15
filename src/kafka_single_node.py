@@ -11,12 +11,10 @@ from kafka import (
     PollReplyMB,
     SendMB,
     SendReplyMB,
-    register_kafka_messages,
 )
 from maelstrom import Node, Message
 
 node = Node()
-register_kafka_messages(node)
 
 T = TypeVar('T')
 class AppendOnlyLog(Generic[T]):
@@ -40,24 +38,24 @@ class AppendOnlyLog(Generic[T]):
     
 logs: dict[str, AppendOnlyLog[int]] = defaultdict(AppendOnlyLog[int])
 
-@node.handler('send')
+@node.handler(SendMB)
 async def handle_send(send_msg: Message[SendMB]):
     offset = logs[send_msg.body.key].append(send_msg.body.msg)
     await node.reply(send_msg, SendReplyMB(offset=offset))
 
-@node.handler('poll')
+@node.handler(PollMB)
 async def handle_poll(poll_msg: Message[PollMB]):
     reply = PollReplyMB(msgs={k: logs[k].poll(offset)
                               for k, offset in poll_msg.body.offsets.items()})
     await node.reply(poll_msg, reply)
 
-@node.handler('commit_offsets')
+@node.handler(CommitOffsetsMB)
 async def handle_commit_offsets(commit_offsets_msg: Message[CommitOffsetsMB]):
     for k, offset in commit_offsets_msg.body.offsets.items():
         logs[k].commit_offset(offset)
     await node.reply(commit_offsets_msg, CommitOffsetsReplyMB())
 
-@node.handler('list_committed_offsets')
+@node.handler(ListCommittedOffsetsMB)
 async def handle_list_committed_offsets(list_committed_offsets_msg: Message[ListCommittedOffsetsMB]):
     reply = ListCommittedOffsetsReplyMB(offsets={k: logs[k].committed_offset
                                                  for k in list_committed_offsets_msg.body.keys})

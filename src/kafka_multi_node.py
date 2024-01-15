@@ -11,13 +11,11 @@ from kafka import (
     PollReplyMB,
     SendMB,
     SendReplyMB,
-    register_kafka_messages,
 )
 from kv import Service, kv_cas, kv_read, register_kv_messages
 from maelstrom import Node, Message
 
 node = Node()
-register_kafka_messages(node)
 register_kv_messages(node)
 
 """
@@ -105,7 +103,7 @@ async def append_message(key: str, page_n: int, message: int):
 
 send_count = 0
 send_cas_fails = 0
-@node.handler('send')
+@node.handler(SendMB)
 async def handle_send(send_msg: Message[SendMB]):
     global send_count, send_cas_fails
     send_count += 1
@@ -135,7 +133,7 @@ async def handle_send(send_msg: Message[SendMB]):
     offset = (PAGE_SIZE * appended_page) + position
     await node.reply(send_msg, SendReplyMB(offset=offset))
 
-@node.handler('poll')
+@node.handler(PollMB)
 async def handle_poll(poll_msg: Message[PollMB]):
     poll_reply = {}
     for key, offset in poll_msg.body.offsets.items():
@@ -150,7 +148,7 @@ async def handle_poll(poll_msg: Message[PollMB]):
 
 commit_offsets_count = 0
 commit_cas_fails = 0
-@node.handler('commit_offsets')
+@node.handler(CommitOffsetsMB)
 async def handle_commit_offsets(commit_offsets_msg: Message[CommitOffsetsMB]):
     global commit_offsets_count, commit_cas_fails
     commit_offsets_count += 1
@@ -174,7 +172,7 @@ async def handle_commit_offsets(commit_offsets_msg: Message[CommitOffsetsMB]):
     node.log(f'commit_offsets CAS fail ratio: {commit_cas_fails / commit_offsets_count}')
     await node.reply(commit_offsets_msg, CommitOffsetsReplyMB())
 
-@node.handler('list_committed_offsets')
+@node.handler(ListCommittedOffsetsMB)
 async def handle_list_committed_offsets(list_committed_offsets_msg: Message[ListCommittedOffsetsMB]):
     list_reply: dict[str, int] = {}
     for key in list_committed_offsets_msg.body.keys:

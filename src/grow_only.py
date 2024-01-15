@@ -10,19 +10,18 @@ from maelstrom import Node, Message, MessageBody
 node = Node()
 register_kv_messages(node)
 
-@node.message('add')
-@dataclass
+@dataclass(kw_only=True)
 class AddMessageBody(MessageBody):
+    type: str = 'add'
     delta: int
 
 @dataclass
 class AddReplyMessageBody(MessageBody):
     type: str = 'add_ok'
 
-@node.message('read')
-@dataclass
+@dataclass(kw_only=True)
 class ReadMessageBody(MessageBody):
-    pass
+    type: str = 'read'
 
 @dataclass(kw_only=True)
 class ReadReplyMessageBody(MessageBody):
@@ -36,7 +35,7 @@ async def read_with_default(key: str):
     except KeyError:
         return 0
 
-@node.handler('add')
+@node.handler(AddMessageBody)
 async def handle_add(add_msg: Message[AddMessageBody]):
     # This is like the atomic int algorithm
     while True:
@@ -60,7 +59,7 @@ async def handle_add(add_msg: Message[AddMessageBody]):
             continue
     await node.reply(add_msg, AddReplyMessageBody())
 
-@node.handler('read')
+@node.handler(ReadMessageBody)
 async def handle_read(read_msg: Message[ReadMessageBody]):
     vals = await asyncio.gather(*(read_with_default(node_id) for node_id in node.node_ids))
     # seq-kv is sequentially consistent, so a read on a different node's key can be stale.

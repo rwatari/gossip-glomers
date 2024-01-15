@@ -7,41 +7,38 @@ from maelstrom import Node, Message, MessageBody
     
 node = Node()
 
-@node.message('broadcast')
-@dataclass
+@dataclass(kw_only=True)
 class BroadcastMessageBody(MessageBody):
+    type: str = 'broadcast'
     message: int
 
 @dataclass
 class BroadcastReplyMessageBody(MessageBody):
     type: str = 'broadcast_ok'
 
-@node.message('read')
 @dataclass
 class ReadMessageBody(MessageBody):
-    pass
+    type: str = 'read'
 
 @dataclass(kw_only=True)
 class ReadReplyMessageBody(MessageBody):
     type: str = 'read_ok'
     messages: list[int]
 
-@node.message('topology')
-@dataclass
+@dataclass(kw_only=True)
 class TopologyMessageBody(MessageBody):
+    type: str = 'topology'
     topology: dict[str, list[str]]
 
 @dataclass
 class TopologyReplyMessageBody(MessageBody):
     type: str = 'topology_ok'
 
-@node.message('propagate')
 @dataclass(kw_only=True)
 class PropagateMessageBody(MessageBody):
     type: str = 'propagate'
     message: int
 
-@node.message('propagate_ok')
 @dataclass
 class PropagateReplyMessageBody(MessageBody):
     type: str = 'propagate_ok'
@@ -55,35 +52,35 @@ parts, it seems to be impossible to achieve the goal metrics without using our o
 topology (spanning tree) or batching messages.
 """
 
-@node.handler('broadcast')
+@node.handler(BroadcastMessageBody)
 async def handle_broadcast(broadcast_msg: Message[BroadcastMessageBody]):
     seen_messages.add(broadcast_msg.body.message)
     await node.reply(broadcast_msg, BroadcastReplyMessageBody())
     propagate_msg = PropagateMessageBody(message=broadcast_msg.body.message)
     await propagate_with_retries(neighbors, propagate_msg)
 
+@node.handler(PropagateReplyMessageBody)
+async def handle_propagate_ok(propagate_ok_msg: Message[PropagateReplyMessageBody]):
+    # this can be anything since we only need to verify the future completed
+    assert propagate_ok_msg.body.type == 'propagate_ok'
+
 async def propagate_with_retries(dests: list[str], propagate_msg: PropagateMessageBody):
-
-    async def handle_propagate_ok(propagate_ok_msg: Message[PropagateReplyMessageBody]):
-        # this can be anything since we only need to verify the future completed
-        assert propagate_ok_msg.body.type == 'propagate_ok'
-
     await asyncio.gather(*(node.rpc(dest, propagate_msg, handle_propagate_ok,
                                     retry_timeout=random.random) for dest in dests))
 
-@node.handler('read')
+@node.handler(ReadMessageBody)
 async def handle_read(read_msg: Message[ReadMessageBody]):
     read_reply = ReadReplyMessageBody(messages=list(seen_messages))
     await node.reply(read_msg, read_reply)
 
-@node.handler('topology')
+@node.handler(TopologyMessageBody)
 async def handle_topology(topology_msg: Message[TopologyMessageBody]):
     global neighbors
     if neighbors is None:
         neighbors = topology_msg.body.topology[node.id]
     await node.reply(topology_msg, TopologyReplyMessageBody())
 
-@node.handler('propagate')
+@node.handler(PropagateMessageBody)
 async def handle_propagate(propagate_msg: Message[PropagateMessageBody]):
     await node.reply(propagate_msg, PropagateReplyMessageBody())
     if propagate_msg.body.message not in seen_messages:

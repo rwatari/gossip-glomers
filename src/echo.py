@@ -5,9 +5,9 @@ from maelstrom import Node, Message, MessageBody
     
 node = Node()
 
-@node.message('echo')
 @dataclass(kw_only=True)
 class EchoMessageBody(MessageBody):
+    type: str = 'echo'
     echo: str
 
 @dataclass(kw_only=True)
@@ -15,9 +15,9 @@ class EchoReplyMessageBody(MessageBody):
     type: str = 'echo_ok'
     echo: str
 
-@node.handler('echo')
+@node.handler(EchoMessageBody)
 async def handle_echo(echo_msg: Message[EchoMessageBody]):
     echo_reply = EchoReplyMessageBody(echo=echo_msg.body.echo)
     await node.reply(echo_msg, echo_reply)
 
-node.main()
+node.run()

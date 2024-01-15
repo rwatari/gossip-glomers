@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from maelstrom import MessageBody, Node
 
-@dataclass
+@dataclass(kw_only=True)
 class SendMB(MessageBody):
+    type: str = 'send'
     key: str
     msg: int
 
@@ -11,8 +12,9 @@ class SendReplyMB(MessageBody):
     type: str = 'send_ok'
     offset: int
 
-@dataclass
+@dataclass(kw_only=True)
 class PollMB(MessageBody):
+    type: str = 'poll'
     offsets: dict[str, int]
 
 @dataclass(kw_only=True)
@@ -20,25 +22,21 @@ class PollReplyMB(MessageBody):
     type: str = 'poll_ok'
     msgs: dict[str, list[list[int]]]
 
-@dataclass
+@dataclass(kw_only=True)
 class CommitOffsetsMB(MessageBody):
+    type: str = 'commit_offsets'
     offsets: dict[str, int]
 
 @dataclass
 class CommitOffsetsReplyMB(MessageBody):
     type: str = 'commit_offsets_ok'
 
-@dataclass
+@dataclass(kw_only=True)
 class ListCommittedOffsetsMB(MessageBody):
+    type: str = 'list_committed_offsets'
     keys: list[str]
 
 @dataclass(kw_only=True)
 class ListCommittedOffsetsReplyMB(MessageBody):
     type: str = 'list_committed_offsets_ok'
     offsets: dict[str, int]
-
-def register_kafka_messages(node: Node):
-    node.message('send')(SendMB)
-    node.message('poll')(PollMB)
-    node.message('commit_offsets')(CommitOffsetsMB)
-    node.message('list_committed_offsets')(ListCommittedOffsetsMB)

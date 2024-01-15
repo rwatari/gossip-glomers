@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from maelstrom import MessageBody, Node
+from maelstrom import MessageBody
 
 @dataclass(kw_only=True)
 class SendMB(MessageBody):

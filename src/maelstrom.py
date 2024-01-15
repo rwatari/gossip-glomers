@@ -67,7 +67,7 @@ class InitReplyMessageBody(MessageBody):
     type: str = "init_ok"
 
 
-T = TypeVar("T")
+T = TypeVar("T", covariant=True)
 
 
 MessageHandler = Callable[[Message[MessageBodyT]], Awaitable[T]]
@@ -82,15 +82,15 @@ class Node:
         self.message_counter = count()
         self._reader: asyncio.StreamReader
         self._writer: asyncio.StreamWriter
-        self._message_constructors: dict[str, Callable[[dict], Message]] = {}
-        self._handlers: dict[str, MessageHandler] = {}
-        self._callbacks: dict[int, MessageHandler] = {}
+        self._message_constructors: dict[str, Callable[[dict[str, Any]], Message[Any]]] = {}
+        self._handlers: dict[str, MessageHandler[Any, Any]] = {}
+        self._callbacks: dict[int, MessageHandler[Any, Any]] = {}
         self._register_init()
 
     def register_message_type(self, msg_type: type[MessageBody]):
         if msg_type.type in self._message_constructors:
             raise ValueError(f"Message type '{msg_type.type}' is already registered")
-        self._message_constructors[msg_type.type] = lambda data_dict: Message.from_dict(msg_type, data_dict)
+        self._message_constructors[msg_type.type] = lambda data_dict: Message[MessageBody].from_dict(msg_type, data_dict)
 
 
     ### Decorator for message and handler registration
@@ -99,7 +99,7 @@ class Node:
     # TODO: handler functions should probably take the node as an argument for
     #       testing purposes
     def handler(self, msg_type: type[MessageBody]):
-        def wrapper(handler_func: MessageHandler):
+        def wrapper(handler_func: MessageHandler[MessageBodyT, T]):
             self.register_message_type(msg_type)
             self._handlers[msg_type.type] = handler_func
             return handler_func
@@ -206,7 +206,7 @@ class Node:
             await self._handlers[msg_type](msg)
 
     async def _rpc(
-        self, dest: str, message_body: MessageBody, handler: MessageHandler
+        self, dest: str, message_body: MessageBody, handler: MessageHandler[Any, Any]
     ) -> int:
         # this should be ok since we're not yielding control until await right?
         msg_id = next(self.message_counter)

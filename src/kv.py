@@ -52,7 +52,7 @@ async def handle_kv_read_reply(read_reply_msg: Message[KVReadReplyMessageBody | 
 
 async def handle_kv_write_reply(write_reply_msg: Message[KVWriteReplyMessageBody | ErrorMessageBody]):
     match write_reply_msg.body:
-        case KVReadReplyMessageBody():
+        case KVWriteReplyMessageBody():
             return
         case _:
             raise RuntimeError(f'Unexpected reply type from {write_reply_msg.src} on write: {write_reply_msg}')

@@ -43,7 +43,7 @@ class PropagateMessageBody(MessageBody):
 class PropagateReplyMessageBody(MessageBody):
     type: str = 'propagate_ok'
 
-seen_messages = set()
+seen_messages: set[int] = set()
 neighbors: list[str] = []
 
 """

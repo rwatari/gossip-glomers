@@ -44,7 +44,7 @@ class PropagateReplyMessageBody(MessageBody):
     type: str = 'propagate_ok'
 
 seen_messages = set()
-neighbors: list[str] | None = None
+neighbors: list[str] = []
 
 """
 The challenge is not too clear on what kind of solutions are allowed. For the Efficiency
@@ -76,8 +76,7 @@ async def handle_read(read_msg: Message[ReadMessageBody]):
 @node.handler(TopologyMessageBody)
 async def handle_topology(topology_msg: Message[TopologyMessageBody]):
     global neighbors
-    if neighbors is None:
-        neighbors = topology_msg.body.topology[node.id]
+    neighbors = topology_msg.body.topology[node.id]
     await node.reply(topology_msg, TopologyReplyMessageBody())
 
 @node.handler(PropagateMessageBody)

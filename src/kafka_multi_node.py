@@ -178,7 +178,7 @@ async def handle_list_committed_offsets(list_committed_offsets_msg: Message[List
     for key in list_committed_offsets_msg.body.keys:
         commit_key = f'{key}_committed_offset'
         try:
-            list_reply[key]: int = await kv_read(node, Service.LinKV, key=commit_key)
+            list_reply[key] = cast(int, await kv_read(node, Service.LinKV, key=commit_key))
             break
         except KeyError:
             # omit this key from the response

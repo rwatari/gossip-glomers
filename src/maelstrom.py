@@ -5,7 +5,7 @@ import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, asdict, replace
 from itertools import count
-from typing import Protocol, TypeVar, Generic, Any
+from typing import TypeVar, Generic, Any
 
 
 @dataclass(kw_only=True)
@@ -15,8 +15,7 @@ class MessageBody:
     in_reply_to: int | None = None
 
 
-MessageBodyT = TypeVar("MessageBodyT", bound=MessageBody)
-MessageBodyS = TypeVar("MessageBodyS", bound=MessageBody)
+MessageBodyT = TypeVar("MessageBodyT", bound=MessageBody, covariant=True)
 
 
 @dataclass
@@ -27,7 +26,7 @@ class Message(Generic[MessageBodyT]):
 
     @classmethod
     def from_dict(
-        cls, body_factory: Callable[[dict], MessageBodyT], data_dict: dict[str, Any]
+        cls, body_factory: type[MessageBody], data_dict: dict[str, Any]
     ):
         """
         Usage: Message[SubclassMessageBody].from_dict(SubclassMessageBody, data_dict)
@@ -36,7 +35,7 @@ class Message(Generic[MessageBodyT]):
         return cls(data_dict["src"], data_dict["dest"], body)
 
     @classmethod
-    def from_json(cls, body_factory: Callable[[dict], MessageBodyT], data: str):
+    def from_json(cls, body_factory: type[MessageBody], data: str):
         """
         Usage: Message[SubclassMessageBody].from_json(SubclassMessageBody, data)
         """
@@ -71,31 +70,27 @@ class InitReplyMessageBody(MessageBody):
 T = TypeVar("T")
 
 
-class MessageHandler(Protocol[MessageBodyT, T]):
-    def __call__(self, message: Message[MessageBodyT]) -> Awaitable[T]:
-        ...
+MessageHandler = Callable[[Message[MessageBodyT]], Awaitable[T]]
 
 
 RetryTimeout = Callable[[], float] | float | None
 
 class Node:
     def __init__(self):
-        self.id: str | None = None
+        self.id: str
         self.node_ids: list[str] = []
         self.message_counter = count()
-        self._reader: asyncio.StreamReader | None = None
-        self._writer: asyncio.StreamWriter | None = None
+        self._reader: asyncio.StreamReader
+        self._writer: asyncio.StreamWriter
         self._message_constructors: dict[str, Callable[[dict], Message]] = {}
         self._handlers: dict[str, MessageHandler] = {}
         self._callbacks: dict[int, MessageHandler] = {}
         self._register_init()
 
-    def register_message_type(self, msg_type: MessageBodyT):
+    def register_message_type(self, msg_type: type[MessageBody]):
         if msg_type.type in self._message_constructors:
             raise ValueError(f"Message type '{msg_type.type}' is already registered")
-        self._message_constructors[msg_type.type] = lambda data_dict: Message[
-            MessageBodyT
-        ].from_dict(msg_type, data_dict)
+        self._message_constructors[msg_type.type] = lambda data_dict: Message.from_dict(msg_type, data_dict)
 
 
     ### Decorator for message and handler registration
@@ -103,7 +98,7 @@ class Node:
     #       reply with the return value
     # TODO: handler functions should probably take the node as an argument for
     #       testing purposes
-    def handler(self, msg_type: MessageBodyT):
+    def handler(self, msg_type: type[MessageBody]):
         def wrapper(handler_func: MessageHandler):
             self.register_message_type(msg_type)
             self._handlers[msg_type.type] = handler_func
@@ -118,14 +113,14 @@ class Node:
     def log(self, log_msg: str):
         print(log_msg, file=sys.stderr, flush=True)
 
-    async def send(self, dest: str, message_body: MessageBodyT):
-        message = Message[MessageBodyT](src=self.id, dest=dest, body=message_body)
+    async def send(self, dest: str, message_body: MessageBody):
+        message = Message(src=self.id, dest=dest, body=message_body)
         message_str = message.to_json() + "\n"
         self._writer.write(message_str.encode())
         await self._writer.drain()
 
     async def reply(
-        self, original_msg: Message[MessageBodyT], reply_body: MessageBodyS
+        self, original_msg: Message[MessageBodyT], reply_body: MessageBody
     ):
         reply_body = replace(reply_body, in_reply_to=original_msg.body.msg_id)
         await self.send(original_msg.src, reply_body)
@@ -133,8 +128,8 @@ class Node:
     async def rpc(
         self,
         dest: str,
-        message_body: MessageBodyT,
-        callback: MessageHandler[MessageBodyS, T],
+        message_body: MessageBody,
+        callback: MessageHandler[MessageBodyT, T],
         retry_timeout: RetryTimeout = None,
     ) -> T:
         """
@@ -145,9 +140,9 @@ class Node:
         while True:
             callback_result: asyncio.Future[T] = loop.create_future()
 
-            async def wrapped_cb(cb_msg_arg: Message[MessageBodyS]):
+            async def wrapped_cb(msg: Message[MessageBodyT]):
                 try:
-                    callback_result.set_result(await callback(cb_msg_arg))
+                    callback_result.set_result(await callback(msg))
                 except asyncio.InvalidStateError:
                     self.log("Tried to set callback result on a cancelled future")
                 except Exception as e:
@@ -197,7 +192,7 @@ class Node:
     # Create namespace for maelstrom services like lin-kv, seq-kv
     # If source is in node_ids, it's an inter-node message type
     # API space for clients
-    async def _handle_message(self, message_json: str):
+    async def _handle_message(self, message_json: bytes):
         msg_obj = json.loads(message_json)
         msg_type = msg_obj["body"]["type"]
         msg = self._message_constructors[msg_type](msg_obj)
@@ -211,7 +206,7 @@ class Node:
             await self._handlers[msg_type](msg)
 
     async def _rpc(
-        self, dest: str, message_body: MessageBodyT, handler: MessageHandler
+        self, dest: str, message_body: MessageBody, handler: MessageHandler
     ) -> int:
         # this should be ok since we're not yielding control until await right?
         msg_id = next(self.message_counter)

@@ -1,5 +1,6 @@
 {
     "python.analysis.extraPaths": [
         "${workspaceFolder}/src"
-    ]
+    ],
+    "python.analysis.typeCheckingMode": "basic"
 }

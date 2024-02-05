@@ -1,8 +1,11 @@
 Solutions for Fly.io Gossip Glomers
 
 Written for Python 3.11
+
 Unzip maelstrom in the top level folder
+
 Make sure to add `src` to python path
+
 Add shebang and make file executable:
 ```
 # in script:

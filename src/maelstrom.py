@@ -5,7 +5,7 @@ import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, asdict, replace
 from itertools import count
-from typing import TypeVar, Generic, Any
+from typing import Coroutine, TypeVar, Generic, Any
 
 
 @dataclass(kw_only=True)
@@ -86,6 +86,7 @@ class Node:
         ] = {}
         self._handlers: dict[str, MessageHandler[Any, Any]] = {}
         self._callbacks: dict[int, MessageHandler[Any, Any]] = {}
+        self._background_task: asyncio.Task[Any]
         self._register_init()
 
     def register_message_type(self, msg_type: type[MessageBody]):
@@ -109,8 +110,8 @@ class Node:
         return wrapper
 
     ### Public methods
-    def run(self):
-        asyncio.run(self._run())
+    def run(self, background_task: Coroutine[Any, Any, None] | None = None):
+        asyncio.run(self._run(background_task))
 
     def log(self, log_msg: str):
         print(log_msg, file=sys.stderr, flush=True)
@@ -160,13 +161,15 @@ class Node:
                     f"Timeout while waiting for reply from {dest} on msg_id {msg_id}"
                 )
 
-    async def _run(self):
+    async def _run(self, background_task: Coroutine[Any, Any, None] | None):
         await self._init_stream()
-        loop = asyncio.get_running_loop()
+        if background_task is not None:
+            self._background_task = asyncio.create_task(background_task)
         try:
-            while True:
-                message_json = (await self._reader.readline()).strip()
-                loop.create_task(self._handle_message(message_json))
+            async with asyncio.TaskGroup() as tg:
+                while True:
+                    message_json = (await self._reader.readline()).strip()
+                    tg.create_task(self._handle_message(message_json))
         except asyncio.CancelledError:
             print("Node killed", file=sys.stderr)
 
